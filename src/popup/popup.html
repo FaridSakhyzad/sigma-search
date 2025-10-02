@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="popup">
+    <form class="searchForm">
+      <div class="row">
+        <input type="search" class="input searchForm-input _search-query-input" placeholder="Search..." />
+        <button type="submit" class="button searchForm-button _search-button">Go</button>
+      </div>
+
+      <hr class="searchForm-hr" />
+
+      <div class="row">
+        <label class="checkboxControl">
+          <input class="checkbox checkboxControl-input _case-sensitive" type="checkbox" name="" />
+          <span class="checkboxControl-text">Case Sensitive</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="checkboxControl">
+          <input class="checkbox checkboxControl-input _whole-words"  type="checkbox" name="" />
+          <span class="checkboxControl-text">Whole Words</span>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="checkboxControl">
+          <input class="checkbox checkboxControl-input _use-regex"  type="checkbox" name="" />
+          <span class="checkboxControl-text">Regex</span>
+        </label>
+      </div>
+    </form>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

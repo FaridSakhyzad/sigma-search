@@ -1,0 +1,75 @@
+body {
+    font: normal normal 14px/1.4 Roboto;
+    width: 300px;
+    border: none;
+    background: transparent;
+}
+
+.form {}
+
+.row {
+    display: flex;
+    gap: 6px;
+}
+
+.input {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font: normal normal 14px/1.4 Roboto;
+}
+
+.button {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 3px 6px;
+    cursor: pointer;
+    font: normal normal 14px/1.4 Roboto;
+
+    &:hover {
+        border: 1px solid #666;
+    }
+}
+
+.searchForm-hr {
+    display: block;
+    width: 100%;
+    border: 1px solid #ccc;
+    margin: 16px 0;
+}
+
+.checkbox {
+    padding: 0;
+    margin: 0;
+}
+
+.searchForm {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.searchForm-input {
+    flex: 1 1 0;
+}
+
+.searchForm-button {
+    min-width: 50px;
+}
+
+.checkboxControl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.highlight {
+    display: block;
+    position: fixed;
+    z-index: 2147483647;
+    background-color: yellow;
+    opacity: 0.7;
+    top: 100px;
+    left: 100px;
+    pointer-events: none;
+}
