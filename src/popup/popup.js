@@ -34,6 +34,120 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
     return /\p{L}|\p{N}|_/u.test(char);
   }
 
+  function getInputTextRangeClientRects(input, start, end) {
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error('Pass an HTMLInputElement');
+    }
+
+    const value = input.value ?? '';
+    if (start > end) [start, end] = [end, start];
+    start = Math.max(0, Math.min(start, value.length));
+    end   = Math.max(0, Math.min(end,   value.length));
+    if (start === end) return [];
+
+    const cs = getComputedStyle(input);
+    const r = input.getBoundingClientRect();
+
+    // === content box ===
+    const bL = parseFloat(cs.borderLeftWidth)   || 0;
+    const bR = parseFloat(cs.borderRightWidth)  || 0;
+    const bT = parseFloat(cs.borderTopWidth)    || 0;
+    const bB = parseFloat(cs.borderBottomWidth) || 0;
+    const pIS = parseFloat(cs.paddingInlineStart || cs.paddingLeft)  || 0;
+    const pIE = parseFloat(cs.paddingInlineEnd   || cs.paddingRight) || 0;
+    const pT  = parseFloat(cs.paddingTop)    || 0;
+    const pB  = parseFloat(cs.paddingBottom) || 0;
+
+    const contentLeft   = r.left + bL + pIS;
+    const contentRight  = r.right - bR - pIE;
+    const contentTop    = r.top  + bT + pT;
+    const contentBottom = r.bottom - bB - pB;
+    const contentWidth  = Math.max(0, contentRight - contentLeft);
+    const contentHeight = Math.max(0, contentBottom - contentTop);
+
+    // line-height (на практике текст в input вертикально центрируется внутри content box)
+    const lineHeight = (() => {
+      const lh = cs.lineHeight;
+      if (!lh || lh === 'normal') return (parseFloat(cs.fontSize)||16) * 1.2;
+      if (lh.endsWith('px')) return parseFloat(lh) || 0;
+      const n = parseFloat(lh);
+      return Number.isFinite(n) ? n * (parseFloat(cs.fontSize)||16) : (parseFloat(cs.fontSize)||16)*1.2;
+    })();
+    const rowTop = contentTop + Math.max(0, (contentHeight - lineHeight) / 2);
+
+    // измерения текста
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.font = cs.font || [
+      cs.fontStyle, cs.fontVariant, cs.fontWeight,
+      cs.fontSize + '/' + (cs.lineHeight || 'normal'),
+      cs.fontFamily
+    ].filter(Boolean).join(' ');
+
+    const fullW   = ctx.measureText(value).width;
+    const beforeW = ctx.measureText(value.slice(0, start)).width;
+    const targetW = ctx.measureText(value.slice(start, end)).width;
+
+    const isRTL = cs.direction === 'rtl';
+    const textIndent = parseFloat(cs.textIndent) || 0;
+
+    // Chrome: если текст не переполняет contentWidth и scrollLeft == 0,
+    // применяется text-align. Иначе — левый край + scrollLeft (для RTL наоборот).
+    const overflow = fullW > contentWidth + 0.5; // допуск
+    const sc = input.scrollLeft;                 // для RTL Chrome использует отрицательные значения
+    const align = (cs.textAlign === 'start' ? (isRTL ? 'right' : 'left')
+      : cs.textAlign === 'end' ? (isRTL ? 'left'  : 'right')
+        : cs.textAlign);
+
+    let baseX;
+    if (!overflow && Math.abs(sc) < 0.5) {
+      // выравнивание внутри content box
+      if (align === 'center') {
+        baseX = contentLeft + (contentWidth - fullW) / 2 + textIndent;
+      } else if (align === 'right') {
+        baseX = contentLeft + (contentWidth - fullW) - (isRTL ? 0 : 0) + textIndent;
+      } else { // left
+        baseX = contentLeft + textIndent;
+      }
+    } else {
+      // режим прокрутки: текст «прибит» к левому (или правому в RTL) краю + scrollLeft
+      // В Chrome для RTL scrollLeft может быть отрицателен: позиции = startEdge - scrollLeft
+      // Приведём к единой формуле:
+      const scEff = sc; // Chrome-браузерный sc уже «как есть»
+      if (isRTL) {
+        // В RTL начало текста у правого края contentRight
+        baseX = contentRight + textIndent + scEff - fullW; // смещаем базу на ширину полного текста
+      } else {
+        baseX = contentLeft + textIndent - scEff;
+      }
+    }
+
+    // позиция начала диапазона
+    const left = isRTL
+      ? baseX + (fullW - (beforeW + targetW))
+      : baseX + beforeW;
+
+    let width = targetW;
+
+    // клип по видимой части content box
+    const clipLeft  = Math.max(left, contentLeft);
+    const clipRight = Math.min(left + width, contentRight);
+    if (clipRight <= clipLeft) return []; // полностью вне видимой зоны
+
+    const rect = {
+      left: clipLeft,
+      top: rowTop,
+      width: clipRight - clipLeft,
+      height: lineHeight,
+      right: clipRight,
+      bottom: rowTop + lineHeight,
+      x: clipLeft,
+      y: rowTop
+    };
+
+    return rect;
+  }
+
   function getTextareaRangeClientRects(textarea, start, end) {
     if (!(textarea instanceof HTMLTextAreaElement)) {
       throw new Error('Pass an HTMLTextAreaElement');
@@ -106,10 +220,7 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
       height: r.height,
     }));
 
-    // Уборка
     mirror.remove();
-
-    console.log('rects', rects);
 
     return rects;
 
@@ -223,33 +334,21 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
     return rect;
   }
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) => {
-      const $parentElement = node.parentElement;
+  const renderHighlight = (clientRects) => {
+    const $highlight = document.createElement('SPAN');
 
-      if (!$parentElement) {
-        return NodeFilter.FILTER_REJECT;
-      }
+    $highlight.style.left = `${clientRects.left}px`;
+    $highlight.style.top = `${clientRects.top}px`;
+    $highlight.style.width = `${clientRects.width}px`;
+    $highlight.style.height = `${clientRects.height}px`;
+    $highlight.style.position = 'fixed';
+    $highlight.style.background = 'rgba(255, 230, 0, 0.35)';
+    $highlight.style.outline = '1px solid rgba(180, 140, 0, 0.8)';
+    $highlight.style.borderRadius = '3px';
+    $highlight.style.pointerEvents = 'none';
 
-      const tag = $parentElement.tagName;
-
-      if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") {
-        return NodeFilter.FILTER_REJECT;
-      }
-
-      if (!node.nodeValue || !node.nodeValue.trim()) {
-        return NodeFilter.FILTER_REJECT;
-      }
-
-      const style = getComputedStyle($parentElement);
-
-      if (style.display === 'none' || style.visibility === 'hidden') {
-        return NodeFilter.FILTER_REJECT;
-      }
-
-      return NodeFilter.FILTER_ACCEPT;
-    }
-  });
+    document.getElementsByTagName('body')[0].append($highlight);
+  }
 
   const marks = [];
 
@@ -274,69 +373,144 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
     searchQueryRegex = new RegExp(escaped, flags);
   }
 
+  const walker = document.createTreeWalker(document.body,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode: (node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const $element = node;
+          const tag = $element.tagName;
+
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          const cs = getComputedStyle($element);
+
+          if (cs.display === 'none' || cs.visibility === 'hidden') {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+            return NodeFilter.FILTER_ACCEPT;
+          }
+
+          return NodeFilter.FILTER_SKIP;
+        }
+
+        if (node.nodeType === Node.TEXT_NODE) {
+          const $parentElement = node.parentElement;
+
+          if (!$parentElement) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          if (!node.nodeValue || !node.nodeValue.trim()) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          const style = getComputedStyle($parentElement);
+
+          if (style.display === 'none' || style.visibility === 'hidden') {
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          return NodeFilter.FILTER_ACCEPT;
+        }
+
+        return NodeFilter.FILTER_SKIP;
+      }
+  });
+
   let node;
   while ((node = walker.nextNode())) {
-    const textNode = walker.currentNode;
-    const text = textNode.nodeValue;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const textNode = walker.currentNode;
+      const text = textNode.nodeValue;
 
-    for (const match of text.matchAll(searchQueryRegex)) {
-
-      if (!match[0]) {
-        continue;
-      }
-
-      const start = match.index;
-      const end = start + match[0].length;
-
-      if (wholeWords) {
-        const before = text[start - 1];
-        const after = text[end];
-
-        if (isWordChar(before) || isWordChar(after)) {
+      for (const match of text.matchAll(searchQueryRegex)) {
+        if (!match[0]) {
           continue;
         }
+
+        const start = match.index;
+        const end = start + match[0].length;
+
+        if (wholeWords) {
+          const before = text[start - 1];
+          const after = text[end];
+
+          if (isWordChar(before) || isWordChar(after)) {
+            continue;
+          }
+        }
+
+        const range = document.createRange();
+        range.setStart(textNode, start);
+        range.setEnd(textNode, end);
+
+        let clientRects = range.getClientRects()[0];
+
+        if (!clientRects) {
+          continue;
+        }
+
+        renderHighlight(clientRects);
+        range.detach?.();
+      }
+    } else {
+      let text;
+
+      if (node.tagName === 'INPUT') {
+        text = walker.currentNode.value;
       }
 
-      const range = document.createRange();
-      range.setStart(textNode, start);
-      range.setEnd(textNode, end);
-
-      let clientRects = range.getClientRects()[0];
-
-      if (node.parentElement.tagName === 'TEXTAREA') {
-        clientRects = getTextareaRangeClientRects(node.parentElement, start, end)[0];
+      if (node.tagName === 'TEXTAREA') {
+        text = walker.currentNode.value;
       }
 
-      if (node.parentElement.tagName === 'OPTION') {
-        console.log('node.parentElement', node.parentElement);
-        console.log('start', start);
-        console.log('end', end);
-
-        clientRects = getSelectedOptionRangeClientRects(node.parentElement.parentElement, start, end);
+      if (node.tagName === 'SELECT') {
+        const idx = node.selectedIndex;
+        text = node.options[idx]?.text ?? '';
       }
 
-      // console.log('node.parentElement.tagName', node.parentElement.tagName);
-      // console.log('clientRects', clientRects);
+      for (const match of text.matchAll(searchQueryRegex)) {
+        if (!match[0]) {
+          continue;
+        }
 
-      if (!clientRects) {
-        continue;
+        const start = match.index;
+        const end = start + match[0].length;
+
+        if (wholeWords) {
+          const before = text[start - 1];
+          const after = text[end];
+
+          if (isWordChar(before) || isWordChar(after)) {
+            continue;
+          }
+        }
+
+        let clientRects;
+
+        if (node.tagName === 'INPUT') {
+          clientRects = getInputTextRangeClientRects(node, start, end);
+        }
+
+        if (node.tagName === 'TEXTAREA') {
+          clientRects = getTextareaRangeClientRects(node, start, end)[0];
+        }
+
+        if (node.tagName === 'SELECT') {
+          clientRects = getSelectedOptionRangeClientRects(node, start, end);
+        }
+
+        if (!clientRects) {
+          continue;
+        }
+
+        renderHighlight(clientRects);
       }
-
-      const $highlight = document.createElement('SPAN');
-
-      $highlight.style.left = `${clientRects.left}px`;
-      $highlight.style.top = `${clientRects.top}px`;
-      $highlight.style.width = `${clientRects.width}px`;
-      $highlight.style.height = `${clientRects.height}px`;
-      $highlight.style.position = 'fixed';
-      $highlight.style.background = 'rgba(255, 230, 0, 0.35)';
-      $highlight.style.outline = '1px solid rgba(180, 140, 0, 0.8)';
-      $highlight.style.borderRadius = '3px';
-      $highlight.style.pointerEvents = 'none';
-
-      document.getElementsByTagName('body')[0].append($highlight);
-
-      range.detach?.();
     }
   }
 }
