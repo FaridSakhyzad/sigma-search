@@ -17,6 +17,19 @@ document.querySelector('._search-button').addEventListener('click', function(e) 
   });
 });
 
+document.querySelector('._clear-button').addEventListener('click', function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      function: clearResults,
+      args: []
+    });
+  });
+});
+
 function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
   function buildRegex(source, flags) {
     try {
@@ -341,11 +354,14 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
     $highlight.style.top = `${clientRects.top}px`;
     $highlight.style.width = `${clientRects.width}px`;
     $highlight.style.height = `${clientRects.height}px`;
-    $highlight.style.position = 'fixed';
+    $highlight.style.position = 'absolute';
     $highlight.style.background = 'rgba(255, 230, 0, 0.35)';
     $highlight.style.outline = '1px solid rgba(180, 140, 0, 0.8)';
     $highlight.style.borderRadius = '3px';
     $highlight.style.pointerEvents = 'none';
+    $highlight.style.zIndex = 2147483647;
+
+    $highlight.classList.add('__sigma-search-highlight-el__');
 
     document.getElementsByTagName('body')[0].append($highlight);
   }
@@ -423,6 +439,7 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
   });
 
   let node;
+
   while ((node = walker.nextNode())) {
     if (node.nodeType === Node.TEXT_NODE) {
       const textNode = walker.currentNode;
@@ -515,3 +532,6 @@ function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
   }
 }
 
+function clearResults() {
+  document.querySelectorAll('.__sigma-search-highlight-el__').forEach(($el) => $el.remove());
+}
