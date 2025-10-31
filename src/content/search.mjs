@@ -321,6 +321,41 @@ function getSelectedOptionRangeClientRects(select, start, end) {
   return rect;
 }
 
+const renderHighlightStyle = () => {
+  if (document.head.querySelector('#__sigma-search-highlight-style__')) {
+    document.head.querySelector('#__sigma-search-highlight-style__').remove();
+  }
+
+  const $style = document.createElement('STYLE');
+
+  $style.setAttribute('id', '__sigma-search-highlight-style__');
+
+  $style.innerHTML = `
+    .__sigma-search-highlight-el__ {
+      position: absolute;
+      background-color: rgba(255, 230, 0, 0.35);
+      outline: 1px solid rgba(180, 140, 0, 0.8);
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 2147483647;     
+    }
+    
+    .__sigma-search-highlight-focus__ {
+      outline: 3px solid #000;
+    }
+  `;
+
+  document.head.appendChild($style);
+}
+
+const clearHighlightStyle = () => {
+  const $style = document.head.querySelector('#__sigma-search-highlight-style__');
+
+  if ($style) {
+    $style.remove();
+  }
+}
+
 const renderHighlight = (clientRects) => {
   const $highlight = document.createElement('SPAN');
 
@@ -329,16 +364,21 @@ const renderHighlight = (clientRects) => {
   $highlight.style.width = `${clientRects.width}px`;
   $highlight.style.height = `${clientRects.height}px`;
 
-  $highlight.style.position = 'absolute';
-  $highlight.style.background = 'rgba(255, 230, 0, 0.35)';
-  $highlight.style.outline = '1px solid rgba(180, 140, 0, 0.8)';
-  $highlight.style.borderRadius = '3px';
-  $highlight.style.pointerEvents = 'none';
-  $highlight.style.zIndex = 2147483647;
-
   $highlight.classList.add('__sigma-search-highlight-el__');
 
   document.getElementsByTagName('body')[0].append($highlight);
+}
+
+export const setHighlightFocus = (index, clientRect) => {
+  document.querySelectorAll('.__sigma-search-highlight-el__.__sigma-search-highlight-focus__').forEach(($el) => {
+    $el.classList.remove('__sigma-search-highlight-focus__');
+  })
+
+  document.querySelectorAll('.__sigma-search-highlight-el__')[index].classList.add('__sigma-search-highlight-focus__');
+
+  console.log('clientRect', clientRect);
+
+  window.scrollTo(window.scrollX, clientRect.top);
 }
 
 export function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
@@ -418,6 +458,8 @@ export function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
 
   let node;
 
+  const highlightRects = [];
+
   while ((node = walker.nextNode())) {
     if (node.nodeType === Node.TEXT_NODE) {
       const textNode = walker.currentNode;
@@ -451,7 +493,8 @@ export function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
         }
 
         range.detach?.();
-        renderHighlight(clientRects);
+
+        highlightRects.push(clientRects);
       }
     } else {
       let text;
@@ -504,8 +547,27 @@ export function sSearch(searchQuery, caseSensitive, wholeWords, useRegex) {
           continue;
         }
 
-        renderHighlight(clientRects);
+        highlightRects.push(clientRects);
       }
     }
   }
+
+
+  if (highlightRects.length > 0) {
+    renderHighlightStyle();
+
+    for (const rect of highlightRects) {
+      renderHighlight(rect);
+    }
+  } else {
+    clearHighlightStyle();
+  }
+
+  window.postMessage({
+    source: 'sigma-page',
+    type: 'SIGMA_SEARCH_DATA_TRANSFER',
+    payload: {
+      highlightRects,
+    }
+  }, window.origin);
 }
