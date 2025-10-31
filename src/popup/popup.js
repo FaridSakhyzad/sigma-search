@@ -9,8 +9,13 @@ const appState = {
 document.addEventListener('DOMContentLoaded', async () => {
   const $input = document.querySelector('._search-query-input');
 
-  const storedSearchQueryData = await chrome.storage.local.get({ [KEY]: '' });
-  const storedSearchQuery = storedSearchQueryData[KEY];
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  const storedSearchQueryData = await chrome.storage.local.get({ [`${tab.id}_${KEY}`]: '' });
+
+  console.log('storedSearchQueryData', storedSearchQueryData);
+
+  const storedSearchQuery = storedSearchQueryData[`${tab.id}_${KEY}`];
 
   if (storedSearchQuery && storedSearchQuery.length > 0) {
     $input.value = storedSearchQuery || '';
@@ -60,11 +65,12 @@ let timer;
 document.querySelector('._search-query-input').addEventListener('input', async function(e) {
   const { target } = e;
   clearTimeout(timer);
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   timer = setTimeout(async () => {
     const { value } = target;
 
-    await chrome.storage.local.set({ [KEY]: value });
+    await chrome.storage.local.set({ [`${tab.id}_${KEY}`]: value });
   }, 100);
 });
 
@@ -103,9 +109,10 @@ document.querySelector('._clear-button').addEventListener('click', async functio
 
   $input.value = null ;
 
-  await chrome.storage.local.set({ [KEY]: '' });
-
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  await chrome.storage.local.set({ [`${tab.id}_${KEY}`]: '' });
+
   chrome.tabs.sendMessage(tab.id, { type: 'CLEAR_SEARCH_HIGHLIGHT' });
 });
 
