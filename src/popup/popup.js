@@ -4,7 +4,7 @@ const appState = {
   activeResultIndex: 0,
   highlightRects: [],
   totalResults: 0,
-}
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   const $input = document.querySelector('._search-query-input');
